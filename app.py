@@ -3,40 +3,53 @@ import joblib
 import numpy as np
 import os
 
-# Define the directory where the model and encoders are saved
-model_dir = r"C:\Users\Administrator\Downloads\DOCKER AND KUBERNETES"
+# ─── Configuration ─────────────────────────────────────────────────────────────
+MODEL_DIR = os.getcwd()   # assumes all .joblib files are in the project root
 
-# Load model and preprocessor
-model = joblib.load(os.path.join(model_dir, "model.joblib"))
-scaler = joblib.load(os.path.join(model_dir, "scaler.joblib"))
-sex_encoder = joblib.load(os.path.join(model_dir, "sex_encoder.joblib"))
-smoker_encoder = joblib.load(os.path.join(model_dir, "smoker_encoder.joblib"))
-region_encoder = joblib.load(os.path.join(model_dir, "region_encoder.joblib"))
+# ─── Load artifacts ────────────────────────────────────────────────────────────
+@st.cache_resource
+def load_artifacts():
+    model = joblib.load(os.path.join(MODEL_DIR, "model.joblib"))
+    scaler = joblib.load(os.path.join(MODEL_DIR, "scaler.joblib"))
+    sex_encoder = joblib.load(os.path.join(MODEL_DIR, "sex_encoder.joblib"))
+    smoker_encoder = joblib.load(os.path.join(MODEL_DIR, "smoker_encoder.joblib"))
+    region_encoder = joblib.load(os.path.join(MODEL_DIR, "region_encoder.joblib"))
+    return model, scaler, sex_encoder, smoker_encoder, region_encoder
 
-# Streamlit UI
-st.title("💸 Cost of Insurance Prediction")
+try:
+    model, scaler, sex_encoder, smoker_encoder, region_encoder = load_artifacts()
+except Exception as e:
+    st.error(f"Failed to load model or encoders: {e}")
+    st.stop()
 
-# Inputs
-age = st.slider("Age", 18, 100, 30)
-sex = st.radio("Sex", options=["male", "female"])
-bmi = st.number_input("BMI", min_value=10.0, max_value=50.0, value=25.0)
-smoker = st.radio("Smoker", options=["yes", "no"])
-region = st.selectbox("Region", options=region_encoder.classes_)
-children = st.slider("Number of Children", 0, 5, 0)
+# ─── Streamlit UI ───────────────────────────────────────────────────────────────
+st.title("💸 Health Insurance Charges Predictor")
 
-if st.button("Predict Insurance Cost"):
-    # Encode categorical variables
-    sex_encoded = sex_encoder.transform([sex])[0]
-    smoker_encoded = smoker_encoder.transform([smoker])[0]
-    region_encoded = region_encoder.transform([region])[0]
+st.markdown("""
+Use the sliders and dropdowns below to enter client information,
+then click **Predict** to estimate their monthly insurance charge.
+""")
 
-    # Create input array
-    input_data = np.array([[age, sex_encoded, bmi, smoker_encoded, children, region_encoded]])
+# Input widgets
+age       = st.slider("Age", min_value=18, max_value=100, value=30)
+sex       = st.radio("Sex", options=sex_encoder.classes_.tolist())
+bmi       = st.number_input("BMI", min_value=10.0, max_value=60.0, value=25.0, step=0.1)
+smoker    = st.radio("Smoker", options=smoker_encoder.classes_.tolist())
+region    = st.selectbox("Region", options=region_encoder.classes_.tolist())
+children  = st.slider("Number of Children", min_value=0, max_value=10, value=0)
 
-    # Scale the input
-    input_scaled = scaler.transform(input_data)
+if st.button("Predict Insurance Charge"):
+    # Encode and scale
+    try:
+        sex_enc     = sex_encoder.transform([sex])[0]
+        smoker_enc  = smoker_encoder.transform([smoker])[0]
+        region_enc  = region_encoder.transform([region])[0]
 
-    # Predict
-    prediction = model.predict(input_scaled)
+        X = np.array([[age, sex_enc, bmi, smoker_enc, children, region_enc]])
+        X_scaled = scaler.transform(X)
 
-    st.success(f"💰 Predicted Insurance Cost: ${prediction[0]:,.2f}")
+        # Predict
+        pred = model.predict(X_scaled)[0]
+        st.success(f"💰 Estimated Insurance Charge: **${pred:,.2f}**")
+    except Exception as err:
+        st.error(f"Prediction error: {err}")
